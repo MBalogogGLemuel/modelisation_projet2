@@ -4,7 +4,7 @@ date: 2023-10-13
 author:
     - Hilaire Touyem
     - Xavier Lapointe
-    - Georges-Lemuel Balogog-Mandack
+    - Georges Balogog
     - Xavier Péladeau
 format:
   pdf:
@@ -122,9 +122,9 @@ Le tableau @tbl-EDA présente le nombre d'observations pour chaque sous-groupe d
 categorial_count <- data %>%
     group_by(jour, mem, pointe) %>%
     summarise(n = n())
-categorial_count <- pivot_wider(categorial_count, names_from = mem, values_from = n, names_glue = "mem_{mem}")
+#categorial_count <- pivot_wider(categorial_count, names_from = mem, values_from = n, names_glue = "mem_{mem}")
 categorial_count <- arrange(categorial_count, jour, pointe)
-categorial_count <- rename(categorial_count, "Nb de trajets non-membres" = mem_FALSE, "Nb de trajets membres" = mem_TRUE)
+#categorial_count <- rename(categorial_count, "Nb de trajets non-membres" = mem_FALSE, "Nb de trajets membres" = mem_TRUE)
 categorial_count
 ```
 
@@ -359,3 +359,103 @@ plot2 <- ggplot(week_days, aes(x = dur, fill = mem)) +
 grid.arrange(plot1, plot2, ncol = 1)
 
 ```
+
+## Question 3 - Version 1.1
+version finale de la reponse a la question 3
+
+```{r}
+#Version 1.1
+#version finale de la reponse a la question 3
+PATH <- getwd()
+
+FILENAME <- "MATH60604-projet-bixi_partie1_equipe1.csv"
+
+bixi_df <- read.csv(paste0( PATH,"/",FILENAME ))
+
+#filtrage des donnees afin de conserver uniquement les donnees de la semaine
+bixi_df.filtered <- bixi_df |> filter((jour != "samedi" & jour != "dimanche")) |> select(dur, mem, pointe)
+bixi_df.filtered$logDur <- log(bixi_df.filtered$dur)
+
+
+# head des donnees
+head(bixi_df.filtered)
+
+# apercu du model
+head(model.matrix( ~ mem + pointe, data = bixi_df.filtered))
+
+# on redige doonc le modele ci-dessous :
+```
+
+
+
+$$ \mathbb{E} [ \ log(dur) \ | \ . ] = \beta_0 + \beta_1.\mathbb{1}_{\text{IsMem}} + \beta_2.\mathbb{1}_{\text{Pointe = 2 = Soir}} + \beta_3.\mathbb{1}_{\text{Pointe = 3 = Hors pointe}} $$
+
+Voici l'interpretation des coefficients :
+
+$$\begin{cases}
+\mu_{000} = \beta_0                                                 & \text{(1) Pas Membre + Matin} \\
+\mu_{010} = \beta_0 \ \ \ \ \ \ \ \ \ + \beta_2                     & \text{(2) Pas Membre + Soir} \\
+\mu_{001} = \beta_0  \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ + \beta_3  & \text{(3) Pas Membre + Hors pointe} \\
+\mu_{100} = \beta_0 + \beta_1                                       & \text{(4) Membre + Matin} \\
+\mu_{110} = \beta_0 + \beta_1 + \beta_2                             & \text{(5) Membre + Soir} \\
+\mu_{101} = \beta_0 + \beta_1 \ \ \ \ \ \ \ \ \ + \beta_3           & \text{(6) Membre + Hors pointe} \\
+\end{cases}$$
+
+**Question 3.1**
+
+On peut donc tester, " __Heures pointe en semaine__ (1+2+4+5) vs. __Pas de pointe en semaine__ (3+6) " ; ceci correspond a l'egalite des moyennes telle que 
+
+$ (1.\mu_{000} + 1.\mu_{010} + 1.\mu_{100} + 1.\mu_{110} ) = (2.\mu_{001} + 2.\mu_{101})  $; en ordant cela (R fonctionne par ordre alpha-numerique), on ecrit:
+$$ 1.\mu_{000} + 1.\mu_{010}  - 2.\mu_{001}  + 1.\mu_{100} + 1.\mu_{110} - 2.\mu_{101}     = 0 \quad [ c_1 = (1,1,-2,1,1,-2) ] $$
+
+On ecrit donc le vecteur de contraste : `c_1 = (1,1,-2,1,1,-2)` sachant que le modele est ordonne par : `000` (groupe de reference) + `010` + `001` + `100` + `110` + `101`. (__le contrastre sera evaluer ci-dessous__).
+
+
+**Question 3.2**
+
+On veut aussi tester, " __Heures pointe Matin semaine__ (1+4) vs. __Heures pointe Soir semaine__ (2+5)" ; ceci correspond a l'egalite des moyennes telle que
+
+$ (1.\mu_{000} + 1.\mu_{100}) = (1.\mu_{010} + 1.\mu_{110})  + 0.( \mu_{001} + \mu_{101}) $; en ordant cela (R fonctionne par ordre alpha-numerique), on ecrit:
+$$ 1.\mu_{000} - 1.\mu_{010}  - 0.\mu_{001}  + 1.\mu_{100} - 1.\mu_{110} - 0.\mu_{101}     = 0 \quad [ c_2 = (1,-1,0,1,-1,0) ] $$
+On ecrit donc le vecteur de contraste : `c_2 = (1,-1,0,1,-1,0)` sachant que le modele est ordonne par : `000` (groupe de reference) + `010` + `001` + `100` + `110` + `101`. (__le contrastre sera evaluer ci-dessous__).
+
+
+
+**Analyse** :
+
+```{r}
+model4 <- lm(logDur ~ factor(mem) + factor(pointe) , data = bixi_df.filtered)
+
+emmeans_bixi <- emmeans(object = model4, specs = c("mem","pointe"))
+
+contrastes_list1 <- list(
+    # Contrastes: combo linéaire de moyennes,
+    # la somme des coefficients doit être nulle
+    "Pointe Semaine VS. NotPointeSemaine" = c(1,1,-2,1,1,-2),
+    "Pointe Matin   vs. PointeSoir"       = c(1,-1,0,1,-1,0)
+    
+   )
+contrastes_bixit <- contrast(object = emmeans_bixi, method = contrastes_list1)
+
+summary(contrastes_bixit)
+emmeans_bixi
+```
+
+L'analyse révèle des différences significatives dans la durée des trajets selon les périodes de pointe et l'appartenance :
+
+*Pointe Semaine vs. NotPointeSemaine* :
+
+Estimation : -0.2694, p-value : 0.0138 (significatif).
+Les trajets en période de pointe sont plus courts que ceux hors pointe, suggérant un comportement différent des utilisateurs.
+
+*Pointe Matin vs. Pointe Soir* :
+
+Estimation : 0.0486, p-value : 0.4407 (non significatif).
+Aucune différence notable entre les trajets matin et soir durant les périodes de pointe.
+
+*__Effets des Moyennes Estimées__*
+Les moyennes pour les membres et non-membres varient légèrement, avec les non-membres ayant tendance à des durées de trajet plus longues dans certaines catégories de pointe.
+
+*Conclusion*
+Les résultats soulignent une dynamique entre appartenance et période de pointe, avec des implications pour la gestion des trajets et l'engagement des utilisateurs.
+
